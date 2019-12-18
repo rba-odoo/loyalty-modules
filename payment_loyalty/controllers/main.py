@@ -17,7 +17,7 @@ class LoyaltyController(http.Controller):
         _logger.info(
             'loyalty: entering form_feedback with post data %s', pprint.pformat(post))
         headers = {
-            'authorization': '9321ee29-bff1-4d33-b547-a9bcbe836d6e',
+            'Authorization': '9321ee29-bff1-4d33-b547-a9bcbe836d6e',
             }
         if post:
             request.env['payment.transaction'].sudo().form_feedback(post, 'loyalty',headers=headers)

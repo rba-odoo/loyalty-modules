@@ -102,7 +102,7 @@ class PaymentTransactionLoyalty(models.Model):
                                 amount_input=values['amount'],
                                 )
         HEADERS = {
-            'authorization': '9321ee29-bff1-4d33-b547-a9bcbe836d6e',
+            'Authorization': '9321ee29-bff1-4d33-b547-a9bcbe836d6e',
             }
         r = requests.post(api_url_charge,
                           data=charge_params,
