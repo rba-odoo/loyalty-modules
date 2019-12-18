@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="acquirer_form_loyalty" model="payment.acquirer">
+            <field name="name">Loyalty</field>
+            <field name="image_128" type="base64" file="payment_loyalty/static/src/img/loyalty.png"/>
+            <field name="provider">loyalty</field>
+            <field name="state">test</field>
+            <field name="company_id" ref="base.main_company"/>
+            <field name="view_template_id" ref="loyalty_form"/>
+            <field name="description" type="html">
+	            <p>
+	                Make Payment Using Loyatly
+	            </p>
+           </field>
+           <field name="loyalty_merchant_key">dummy</field>
+        </record>
+    </data>
+</odoo>
