@@ -4,6 +4,7 @@
 import hashlib
 
 from werkzeug import urls
+import requests
 
 from odoo import api, fields, models, _
 from odoo.addons.payment.models.payment_acquirer import ValidationError
@@ -20,30 +21,33 @@ class PaymentAcquirerLoyalty(models.Model):
     provider = fields.Selection(selection_add=[('loyalty', 'Loyalty')])
     loyalty_merchant_key = fields.Char(string='Merchant Key', required_if_provider='loyalty', groups='base.group_user')
 
-    def _get_loyalty_urls(self, environment):
-        if environment == 'prod':
-            return {'loyalty_form_url': 'http://3.231.100.180/merchant/useFunds'}
-        else:
-            return {'loyalty_form_url': 'http://3.231.100.180/merchant/useFunds'}
+    def _get_loyalty_urls(self):
+        return 'http://3.231.100.180/merchant/useFunds'
 
     def loyalty_form_generate_values(self, values):
         self.ensure_one()
         base_url = self.get_base_url()
-        loyalty_values = dict(values,
-                                programCode="raktim.0526",
-                                tierName="Platinum",
-                                memberNumber="m1",
-                                merchantCode = "merchant1",
-                                txnid=values['reference'],
-                                amount_input=values['amount'],
-                                surl='http://3.231.100.180/merchant/undoUseFunds',
-                                )
-        return loyalty_values
+        user = self.env.user
+        if values['amount'] > user.user_points:
+            raise ValidationError(_('Insufficent point balance, Current point balance is %s') % (user.user_points))
+
+        _logger.info(user)
+        values.update({
+            "programCode": "raktim.0526",
+            "tierName": "Platinum",
+            "memberNumber": user.email.split('@')[0],
+            "merchantCode": "merchant1",
+            "txnid": values['reference'],
+            "amount_input": values['amount'],
+            })
+        return values
 
     def loyalty_get_form_action_url(self):
         self.ensure_one()
-        environment = 'prod' if self.state == 'enabled' else 'test'
-        return self._get_loyalty_urls(environment)['loyalty_form_url']
+        base_url = self.get_base_url()
+        prod_url = '/payment/loyalty/create_charge'
+        valid_url = urls.url_join(base_url, prod_url)
+        return valid_url
 
 
 class PaymentTransactionLoyalty(models.Model):
@@ -51,8 +55,6 @@ class PaymentTransactionLoyalty(models.Model):
 
     @api.model
     def _loyalty_form_get_tx_from_data(self, data):
-        """ Given a data dict coming from payumoney, verify it and find the related
-        transaction record. """
         reference = data.get('txnid')
         if not reference:
             raise ValidationError(_('loyalty: received data with missing reference (%s)') % (reference))
@@ -80,31 +82,43 @@ class PaymentTransactionLoyalty(models.Model):
     def _loyalty_form_validate(self, data):
         status = data.get('status')
         result = self.write({
-            'acquirer_reference': data.get('transactionId'),
+            'acquirer_reference': data.get('txId'),
             'date': fields.Datetime.now(),
         })
         if status == 'success':
             self._set_transaction_done()
-        elif status != 'pending':
-            self._set_transaction_cancel()
         else:
-            self._set_transaction_pending()
-        return result
+            self._set_transaction_cancel()
+        return True
 
-    def _create_loyalty_charge(self, acquirer_ref=None, tokenid=None, email=None):
-        api_url_charge = '%s' % (self.acquirer_id.loyalty_get_form_action_url())
-        charge_params =  dict(values,
-                                programCode="raktim.0526",
-                                tierName="Platinum",
-                                memberNumber="m1",
-                                merchantCode = "merchant1",
-                                txnid=values['reference'],
-                                amount_input=values['amount'],
-                                )
+    @api.model
+    def _create_loyalty_charge(self, data):
         HEADERS = {
-            'Authorization': '9321ee29-bff1-4d33-b547-a9bcbe836d6e',
+            'authorization': '9321ee29-bff1-4d33-b547-a9bcbe836d6e',
             }
-        r = requests.post(api_url_charge,
-                          data=charge_params,
-                          headers=HEADERS)
-        return r.json()
+        payment_acquirer = self.env['payment.acquirer'].search([('provider', '=', 'loyalty')], limit=1)
+        payment_url = payment_acquirer._get_loyalty_urls()
+        user = self.env.user.email
+        _logger.info(user)
+        charge_params =  dict(  programCode="raktim.0526",
+                                tierName="Platinum",
+                                memberNumber=user.split('@')[0],
+                                merchantCode = "merchant1",
+                                amount_input=data.get('amount'),
+                                )
+        try:
+            response = requests.post(payment_url,data=charge_params,headers=HEADERS)
+            payment_response = response.json()
+        except Exception as e:
+            raise e
+        print('response',payment_response,response.status_code)
+        payment_reference = payment_response.get('response',{}).get('txId', False) if type(payment_response.get('response')) == dict else False
+        if response.status_code == 200 and payment_reference:
+            reference = data.get('txnid', False)
+            self.env.user.partner_id.write({'user_points': self.env.user.partner_id.user_points - round(float(data.get('amount')))})
+            payment_response.get('response', {}).update({'status': 'success', 'txnid': reference, 'amount': data.get('amount', 0)})
+            return payment_response
+        elif response.status_code == 200 and not payment_reference:
+            return data
+        else:
+            return data
