@@ -15,6 +15,7 @@ class ResUsers(models.Model):
 
 	@api.model
 	def _get_backend_user_values(self, user):
+		member_response = {}
 		HEADERS = {
 			'authorization': '9321ee29-bff1-4d33-b547-a9bcbe836d6e',
 		}
@@ -22,20 +23,21 @@ class ResUsers(models.Model):
 		member_params = {'programCode': "raktim.0526", 'tierName': "Platinum", 'memberNumber': user}
 		try:
 			response = requests.get(member_url, params=member_params, headers=HEADERS)
-			member_response = response.json()
+			if response:
+				member_response = response.json()
 		except Exception as e:
 			raise e
 		_logger.info(member_response)
-		return member_response['response']
+		return member_response
 
 	@api.model
 	def _auth_oauth_signin(self, provider, validation, params):
 		res = super(ResUsers, self)._auth_oauth_signin(provider, validation, params)
 		partner = self.env['res.partner'].search([('email', '=', res)])
 		all_fields = self._get_backend_user_values(res.split('@')[0])
-		_logger.info(all_fields)
-		update_fields = {
-			'user_points': all_fields['balance']
-		}
-		partner.write(update_fields)
+		if all_fields:
+			update_fields = {
+				'user_points': all_fields['response']['balance']
+			}
+			partner.write(update_fields)
 		return res
